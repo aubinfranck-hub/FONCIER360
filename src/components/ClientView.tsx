@@ -65,7 +65,7 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
 
   // Modal paiement
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentProvider, setPaymentProvider] = useState<'WAVE' | 'ORANGE_MONEY' | 'MTN_MOMO' | 'MOOV_MONEY' | 'CARTE_BANCAIRE'>('WAVE');
+  const [paymentProvider, setPaymentProvider] = useState<'WAVE' | 'ORANGE_MONEY' | 'MTN_MOMO' | 'MOOV_MONEY' | 'DJAMO' | 'JEKO'>('WAVE');
 
   // Input question client
   const [newQuestion, setNewQuestion] = useState('');
@@ -187,9 +187,21 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
       body: JSON.stringify({ dossierId: activeDossier.id, method: paymentProvider })
     });
-    if (!response.ok) { alert('Impossible de créer la demande de paiement.'); return; }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(result?.error === 'JEKO_NOT_CONFIGURED'
+        ? 'Le paiement Jèko n’est pas encore configuré côté serveur.'
+        : result?.error === 'TARIFF_NOT_CONFIGURED'
+          ? 'Le tarif de la formule n’est pas encore configuré.'
+          : 'Impossible de créer la demande de paiement.');
+      return;
+    }
     setShowPaymentModal(false);
-    alert('Demande de paiement créée. Le dossier reste en attente jusqu’à confirmation réelle du prestataire.');
+    if (result.redirectUrl) {
+      window.location.href = result.redirectUrl;
+      return;
+    }
+    alert('Demande de paiement créée. Le dossier reste en attente jusqu’à confirmation réelle de Jèko.');
   };
 
   // Calcul des 4 états de clarté pour le client
@@ -924,7 +936,7 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
               <div>
                 <label className="block font-medium text-slate-700 mb-2">Sélectionnez le mode de paiement :</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {(['WAVE', 'ORANGE_MONEY', 'MTN_MOMO', 'MOOV_MONEY', 'CARTE_BANCAIRE'] as const).map((m) => (
+                  {(['WAVE', 'ORANGE_MONEY', 'MTN_MOMO', 'MOOV_MONEY', 'DJAMO', 'JEKO'] as const).map((m) => (
                     <div
                       key={m}
                       onClick={() => setPaymentProvider(m)}
@@ -934,7 +946,7 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
                           : 'border-slate-200 hover:border-slate-300 text-slate-700'
                       }`}
                     >
-                      {m.replace(/_/g, ' ')}
+                      {m === 'JEKO' ? 'Jèko' : m === 'DJAMO' ? 'Djamo' : m.replace(/_/g, ' ')}
                     </div>
                   ))}
                 </div>
