@@ -341,6 +341,12 @@ app.post('/api/reports/:dossierId/finalize',auth,requireRoles('VALIDATEUR','ADMI
   res.status(201).json(report);
 });
 
+app.get('/api/reports/verify/:reportNumber',async(req,res)=>{
+  const r=await pool.query('SELECT report_number,version,hash_sha256,created_at FROM reports WHERE report_number=$1 LIMIT 1',[req.params.reportNumber]);
+  if(!r.rowCount) return res.status(404).json({valid:false,error:'REPORT_NOT_FOUND'});
+  res.json({valid:true,reportNumber:r.rows[0].report_number,version:r.rows[0].version,hashSha256:r.rows[0].hash_sha256,validatedAt:r.rows[0].created_at});
+});
+
 app.get('/api/audit-logs',auth,requireRoles('ADMIN','VALIDATEUR'),async(_req,res)=>{
   const r=await pool.query('SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 1000'); res.json({logs:r.rows});
 });
