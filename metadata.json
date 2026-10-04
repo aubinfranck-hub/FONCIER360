@@ -1,0 +1,6 @@
+{
+  "name": "FONCIER 360 - Due Diligence Foncière & Urbanistique CI",
+  "description": "Plateforme professionnelle de due diligence, vérification documentaire, contrôles fonciers, urbanistiques et visites terrain en Côte d'Ivoire.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
