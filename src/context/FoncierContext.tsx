@@ -507,25 +507,12 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const validerPaiementClient = (dossierId: string, moyen: PaiementDossier['moyenPaiement'], refTx: string) => {
-    setDossiers((prev) =>
-      prev.map((d) => {
-        if (d.id === dossierId) {
-          return {
-            ...d,
-            statut: 'PRE_VERIFICATION',
-            paiement: {
-              ...d.paiement,
-              statut: 'SUCCESS',
-              moyenPaiement: moyen,
-              referenceTransaction: refTx,
-              datePaiement: new Date().toISOString()
-            }
-          };
-        }
-        return d;
-      })
-    );
-    logAction('PAIEMENT_VALIDE', dossierId, `Paiement confirmé via ${moyen} (Réf : ${refTx})`);
+    if (isProductionApi) {
+      logAction('PAIEMENT_NON_SIMULE', dossierId, 'Le paiement doit être confirmé par le webhook du prestataire. Aucun SUCCESS local.');
+      return;
+    }
+    setDossiers((prev) => prev.map((d) => d.id === dossierId ? { ...d, statut:'PRE_VERIFICATION', paiement:{ ...d.paiement, statut:'SUCCESS', moyenPaiement:moyen, referenceTransaction:refTx, datePaiement:new Date().toISOString() } } : d));
+    logAction('PAIEMENT_VALIDE_DEMO', dossierId, 'Paiement de démonstration uniquement.');
   };
 
   const genererRapportDossier = (dossierId: string) => {
@@ -566,7 +553,7 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
       'Vérifier auprès de la Conservation Foncière l\'absence de commandement de saisie ou prénotation judiciaire'
     ];
 
-    const hashReport = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const hashReport = isProductionApi ? 'A_CALCULER_PAR_API' : 'DEMO_NON_CRYPTographique';
 
     const nouveauRapport: RapportFoncier = {
       id: `rap-${Date.now()}`,
@@ -605,29 +592,19 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const validerRapportSenior = (dossierId: string, approbation: boolean, motif?: string) => {
-    setDossiers((prev) =>
-      prev.map((d) => {
-        if (d.id === dossierId && d.rapportFinal) {
-          return {
-            ...d,
-            statut: approbation ? 'LIVRE' : 'CONTROLE_QUALITE',
-            rapportFinal: {
-              ...d.rapportFinal,
-              statut: approbation ? 'VALIDE' : 'REJETE',
-              validateurId: currentUser.id,
-              validateurNom: currentUser.name,
-              validateurQualite: 'Direction Technique et Juridique Senior'
-            }
-          };
-        }
-        return d;
-      })
-    );
-    logAction(
-      approbation ? 'VALIDATION_SENIOR_APPROUVEE' : 'VALIDATION_SENIOR_REJETEE',
-      dossierId,
-      `Décision de validation senior par ${currentUser.name} : ${approbation ? 'APPROUVÉ & LIVRÉ' : 'REJETÉ POUR RÉVISION'} (Motif : ${motif || 'Conforme aux exigences'})`
-    );
+    if (isProductionApi && approbation) {
+      const token=localStorage.getItem('foncier360_access_token');
+      fetch(apiBase + '/api/reports/' + dossierId + '/finalize', { method:'POST', headers:{ Authorization:'Bearer '+(token||''), 'Content-Type':'application/json' } })
+        .then(r=>r.ok ? r.json() : Promise.reject(new Error('REPORT_REJECTED')))
+        .then((report) => {
+          setDossiers(prev=>prev.map(d=>d.id===dossierId && d.rapportFinal ? {...d,statut:'LIVRE',rapportFinal:{...d.rapportFinal,hashSha256:report.hashSha256,numeroRapport:report.numeroRapport,statut:'VALIDE'}}:d));
+          logAction('RAPPORT_VALIDE_API',dossierId,'Rapport validé côté serveur avec hash SHA-256 réel.');
+        }).catch(()=>logAction('RAPPORT_VALIDATION_ECHEC',dossierId,'Validation serveur refusée ou impossible.'));
+      return;
+    }
+    if (isProductionApi) return;
+    setDossiers((prev) => prev.map((d) => d.id === dossierId && d.rapportFinal ? {...d,statut:approbation?'LIVRE':'CONTROLE_QUALITE',rapportFinal:{...d.rapportFinal,statut:approbation?'VALIDE':'REJETE',validateurId:currentUser.id,validateurNom:currentUser.name,validateurQualite:'Direction Technique et Juridique Senior'}}:d));
+    logAction('RAPPORT_VALIDATION_DEMO',dossierId,motif||'Validation de démonstration.');
   };
 
   const poserQuestionClient = (dossierId: string, question: string) => {
