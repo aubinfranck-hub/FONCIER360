@@ -141,6 +141,25 @@ app.patch('/api/recherches/:id',auth,requireRoles('ADMIN','AGENT_DOCUMENTAIRE','
   res.json(payload);
 });
 
+app.get('/api/dossiers/:id/evidence',auth,async(req,res)=>{
+  const u=(req as any).user as AuthUser;
+  const d=await pool.query('SELECT client_id FROM dossiers WHERE id=$1',[req.params.id]);
+  if(!d.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
+  if(u.role==='CLIENT' && d.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+  const r=await pool.query('SELECT * FROM evidence WHERE dossier_id=$1 ORDER BY checked_at DESC',[req.params.id]);
+  res.json({evidence:r.rows});
+});
+
+app.post('/api/dossiers/:id/evidence',auth,requireRoles('ADMIN','AGENT_DOCUMENTAIRE','EXPERT_FONCIER','EXPERT_URBANISME','JURISTE','VALIDATEUR'),async(req,res)=>{
+  const u=(req as any).user as AuthUser; const x=req.body||{};
+  if(!x.sourceType || !x.sourceName || !x.resultStatus) return res.status(400).json({error:'INVALID_EVIDENCE'});
+  const id=crypto.randomUUID();
+  await pool.query('INSERT INTO evidence(id,dossier_id,source_type,source_name,source_url,checked_at,checked_by,result_status,reference,evidence_document_id,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+    [id,req.params.id,x.sourceType,x.sourceName,x.sourceUrl||null,x.checkedAt||new Date().toISOString(),u.id,x.resultStatus,x.reference||null,x.evidenceDocumentId||null,x.notes||null]);
+  await audit(u,'EVIDENCE_RECORDED',req.params.id,'Preuve enregistrée : '+x.sourceName+' / '+x.resultStatus+' / '+(x.reference||'sans référence'));
+  res.status(201).json({id,...x});
+});
+
 app.post('/api/payments/create-intent',auth,async(req,res)=>{
   const {dossierId,amount,method}=req.body||{};
   if(!dossierId || !amount || !method) return res.status(400).json({error:'INVALID_PAYMENT'});
