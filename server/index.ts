@@ -17,6 +17,55 @@ if (!jwtSecret || jwtSecret.length < 32) throw new Error('JWT_SECRET must be at 
 const pool = new Pool({ connectionString: databaseUrl, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 app.use(cors({ origin: (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map(s => s.trim()), credentials: true }));
+
+// JEKO_WEBHOOK_RAW_ROUTE
+// Jèko signs the RAW request body with HMAC-SHA256. This route must run before express.json().
+app.post('/api/payments/webhook/jeko', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const secret = process.env.JEKO_WEBHOOK_SECRET;
+    const signature = String(req.headers['jeko-signature'] || '');
+    if (!secret || !signature || !Buffer.isBuffer(req.body)) return res.status(401).json({ error: 'JEKO_WEBHOOK_NOT_CONFIGURED' });
+    const expected = crypto.createHmac('sha256', secret).update(req.body).digest('hex');
+    const received = Buffer.from(signature, 'utf8');
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    if (received.length !== expectedBuf.length || !crypto.timingSafeEqual(received, expectedBuf)) return res.status(401).json({ error: 'INVALID_JEKO_SIGNATURE' });
+
+    const event = String(req.headers['jeko-event'] || '');
+    if (event !== 'TRANSACTION_COMPLETED') return res.status(200).json({ ok: true, ignored: true, event });
+
+    const body = JSON.parse(req.body.toString('utf8'));
+    if (body.transactionType !== 'payment' || body.status !== 'success') return res.status(200).json({ ok: true, ignored: true });
+
+    const reference = body?.transactionDetails?.reference;
+    const transactionId = body?.id || body?.transactionDetails?.id;
+    if (!reference || !transactionId) return res.status(400).json({ error: 'INVALID_JEKO_TRANSACTION' });
+
+    const existing = await pool.query('SELECT id,dossier_id,status,provider_transaction_id FROM payments WHERE provider_reference=$1 LIMIT 1',[reference]);
+    if (!existing.rowCount) return res.status(404).json({ error: 'PAYMENT_NOT_FOUND' });
+    if (existing.rows[0].status === 'SUCCESS' && existing.rows[0].provider_transaction_id === transactionId) return res.status(200).json({ ok: true, duplicate: true });
+
+    const paymentMethod = String(body.paymentMethod || '').toUpperCase();
+    const dossierId = existing.rows[0].dossier_id;
+    const amountCfa = Number(body?.amount?.amount || 0);
+
+    const db=await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query("UPDATE payments SET status='SUCCESS',provider_transaction_id=$1,method=$2,updated_at=NOW(),metadata=$3 WHERE provider_reference=$4",
+        [transactionId,paymentMethod || 'JEKO',JSON.stringify({provider:'JEKO',event,transactionId,amountCfa,feesCfa:Number(body?.fees?.amount||0),executedAt:body.executedAt||null,paymentMethod:body.paymentMethod||null}),reference]);
+      await db.query("UPDATE dossiers SET payload=jsonb_set(jsonb_set(jsonb_set(jsonb_set(payload,'{paiement,statut}','\"SUCCESS\"'::jsonb,true),'{paiement,moyenPaiement}',to_jsonb($1::text),true),'{paiement,refTx}',to_jsonb($2::text),true),'{paiement,provider}','\"JEKO\"'::jsonb,true),updated_at=NOW() WHERE id=$3",
+        [paymentMethod || 'JEKO',transactionId,dossierId]);
+      await db.query('COMMIT');
+    } catch(e) { await db.query('ROLLBACK'); throw e; } finally { db.release(); }
+
+    await audit(undefined,'PAYMENT_JEKO_CONFIRMED',dossierId,'Paiement Jèko confirmé : '+reference+' / transaction '+transactionId);
+    return res.status(200).json({ok:true});
+  } catch(error) {
+    console.error('Jèko webhook error',error);
+    return res.status(500).json({error:'JEKO_WEBHOOK_PROCESSING_ERROR'});
+  }
+});
+
 app.use(express.json({ limit: '2mb' }));
 app.disable('x-powered-by');
 app.use((_req,res,next)=>{ res.setHeader('X-Content-Type-Options','nosniff'); res.setHeader('X-Frame-Options','DENY'); res.setHeader('Referrer-Policy','strict-origin-when-cross-origin'); res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(self)'); next(); });
@@ -173,19 +222,41 @@ app.post('/api/dossiers/:id/evidence',auth,requireRoles('ADMIN','AGENT_DOCUMENTA
 
 app.post('/api/payments/create-intent',auth,async(req,res)=>{
   const {dossierId,method}=req.body||{};
-  if(!dossierId || !method) return res.status(400).json({error:'INVALID_PAYMENT'});
+  const allowedMethods: Record<string,string>={WAVE:'wave',ORANGE_MONEY:'orange',MTN_MOMO:'mtn',MOOV_MONEY:'moov',DJAMO:'djamo',JEKO:'jeko'};
+  if(!dossierId || !allowedMethods[method]) return res.status(400).json({error:'INVALID_PAYMENT_METHOD'});
   const u=(req as any).user as AuthUser;
   const d=await pool.query('SELECT client_id FROM dossiers WHERE id=$1',[dossierId]);
   if(!d.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
   if(u.role==='CLIENT' && d.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+
   const tariff=await pool.query("SELECT amount_cfa FROM tariffs WHERE service='VERIFICATION_FONCIERE' AND active=true ORDER BY effective_date DESC LIMIT 1");
   if(!tariff.rowCount) return res.status(409).json({error:'TARIFF_NOT_CONFIGURED'});
   const amount=Number(tariff.rows[0].amount_cfa);
-  const id=crypto.randomUUID(), reference='F360-'+new Date().getFullYear()+'-'+id.slice(0,8).toUpperCase();
-  await pool.query('INSERT INTO payments(id,dossier_id,amount_cfa,method,status,provider_reference,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',
-    [id,dossierId,amount,method,'PENDING',reference,JSON.stringify({providerConfigured:false})]);
-  await audit((req as any).user,'PAYMENT_INTENT_CREATED',dossierId,'Paiement '+reference+' créé; aucun succès n’est simulé');
-  res.status(201).json({paymentId:id,reference,status:'PENDING',providerConfigured:false,requiresProviderConfiguration:true});
+  if(!Number.isInteger(amount)||amount<=0) return res.status(409).json({error:'INVALID_TARIFF'});
+
+  const jekoKey=process.env.JEKO_API_KEY,jekoKeyId=process.env.JEKO_API_KEY_ID,jekoStoreId=process.env.JEKO_STORE_ID;
+  const publicUrl=(process.env.APP_PUBLIC_URL||'').replace(/\/$/,'');
+  if(!jekoKey||!jekoKeyId||!jekoStoreId||!publicUrl) return res.status(503).json({error:'JEKO_NOT_CONFIGURED'});
+
+  const id=crypto.randomUUID(),reference='F360-'+new Date().getFullYear()+'-'+id.slice(0,8).toUpperCase();
+  const successUrl=publicUrl+'/payment/success?reference='+encodeURIComponent(reference)+'&dossierId='+encodeURIComponent(dossierId);
+  const errorUrl=publicUrl+'/payment/error?reference='+encodeURIComponent(reference)+'&dossierId='+encodeURIComponent(dossierId);
+
+  const jr=await fetch('https://api.jeko.africa/partner_api/payment_requests',{
+    method:'POST',
+    headers:{'X-API-KEY':jekoKey,'X-API-KEY-ID':jekoKeyId,'Content-Type':'application/json'},
+    body:JSON.stringify({storeId:jekoStoreId,amountCents:amount*100,currency:'XOF',reference,paymentDetails:{type:'redirect',data:{paymentMethod:allowedMethods[method],successUrl,errorUrl}}})
+  });
+  const jb=await jr.json().catch(()=>({}));
+  if(!jr.ok||!jb?.redirectUrl){
+    console.error('Jèko payment creation failed',jr.status,jb);
+    return res.status(502).json({error:'JEKO_PAYMENT_CREATION_FAILED'});
+  }
+
+  await pool.query('INSERT INTO payments(id,dossier_id,amount_cfa,method,status,provider_reference,provider_transaction_id,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+    [id,dossierId,amount,method,'PENDING',reference,jb.id||null,JSON.stringify({provider:'JEKO',jekoPaymentRequestId:jb.id||null,jekoStatus:jb.status||'pending',redirectUrl:jb.redirectUrl})]);
+  await audit(u,'PAYMENT_INTENT_CREATED',dossierId,'Paiement Jèko '+reference+' créé; montant '+amount+' FCFA');
+  res.status(201).json({paymentId:id,reference,status:'PENDING',provider:'JEKO',redirectUrl:jb.redirectUrl,jekoPaymentRequestId:jb.id||null});
 });
 
 app.post('/api/payments/webhook/:provider',async(req,res)=>{
