@@ -185,7 +185,7 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
     const response = await fetch(api + '/api/payments/create-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-      body: JSON.stringify({ dossierId: activeDossier.id, amount: activeDossier.paiement.totalTtcCfa, method: paymentProvider })
+      body: JSON.stringify({ dossierId: activeDossier.id, method: paymentProvider })
     });
     if (!response.ok) { alert('Impossible de créer la demande de paiement.'); return; }
     setShowPaymentModal(false);
