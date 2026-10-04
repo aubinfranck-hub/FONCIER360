@@ -18,6 +18,8 @@ const pool = new Pool({ connectionString: databaseUrl, ssl: process.env.NODE_ENV
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 app.use(cors({ origin: (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map(s => s.trim()), credentials: true }));
 app.use(express.json({ limit: '2mb' }));
+app.disable('x-powered-by');
+app.use((_req,res,next)=>{ res.setHeader('X-Content-Type-Options','nosniff'); res.setHeader('X-Frame-Options','DENY'); res.setHeader('Referrer-Policy','strict-origin-when-cross-origin'); res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=(self)'); next(); });
 
 type AuthUser = { id:string; email:string; name:string; role:string };
 function tokenFor(u: AuthUser) { return jwt.sign(u, jwtSecret!, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }); }
@@ -201,4 +203,8 @@ app.get('/api/audit-logs',auth,requireRoles('ADMIN','VALIDATEUR'),async(_req,res
   const r=await pool.query('SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 1000'); res.json({logs:r.rows});
 });
 
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('dist', { index: 'index.html' }));
+  app.get(/^\\/(?!api).*/, (_req,res) => res.sendFile(process.cwd() + '/dist/index.html'));
+}
 app.listen(port,()=>console.log('FONCIER360 API listening on :'+port));
