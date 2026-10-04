@@ -1,0 +1,21 @@
+name: FONCIER 360 CI
+
+on:
+  push:
+    branches: [main, production-migration-foncier360]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run build:api
