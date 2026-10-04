@@ -1,0 +1,3 @@
+# FONCIER 360 API
+
+PostgreSQL est la source de vérité. JWT + bcrypt assurent l'authentification API. Les rôles sont contrôlés côté serveur. Un paiement est toujours PENDING jusqu'à un webhook authentifié. Les fichiers sont hachés SHA-256 côté serveur. Les rapports validés sont versionnés et hachés. Aucune API gouvernementale n'est inventée : les recherches officielles sont enregistrées avec leurs preuves.
