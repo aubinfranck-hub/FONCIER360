@@ -225,11 +225,16 @@ app.post('/api/payments/create-intent',auth,async(req,res)=>{
   const allowedMethods: Record<string,string>={WAVE:'wave',ORANGE_MONEY:'orange',MTN_MOMO:'mtn',MOOV_MONEY:'moov',DJAMO:'djamo',JEKO:'jeko'};
   if(!dossierId || !allowedMethods[method]) return res.status(400).json({error:'INVALID_PAYMENT_METHOD'});
   const u=(req as any).user as AuthUser;
-  const d=await pool.query('SELECT client_id FROM dossiers WHERE id=$1',[dossierId]);
-  if(!d.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
-  if(u.role==='CLIENT' && d.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
-
-  const tariff=await pool.query("SELECT amount_cfa FROM tariffs WHERE service='VERIFICATION_FONCIERE' AND active=true ORDER BY effective_date DESC LIMIT 1");
+  const dossierRow=await pool.query('SELECT client_id,payload FROM dossiers WHERE id=$1',[dossierId]);
+  if(!dossierRow.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
+  if(u.role==='CLIENT' && dossierRow.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+  const formula=String(dossierRow.rows[0].payload?.formule || '');
+  const tariffService=formula==='VERIFICATION_EXPRESS'
+    ? 'F360-VERIFICATION_EXPRESS'
+    : formula==='AUDIT_PRE_INVESTISSEMENT_DIASPORA'
+      ? 'F360-AUDIT_PRE_INVESTISSEMENT_DIASPORA'
+      : 'F360-DUE_DILIGENCE_COMPLETE';
+  const tariff=await pool.query("SELECT amount_cfa FROM tariffs WHERE service=$1 AND active=true ORDER BY effective_date DESC LIMIT 1",[tariffService]);
   if(!tariff.rowCount) return res.status(409).json({error:'TARIFF_NOT_CONFIGURED'});
   const amount=Number(tariff.rows[0].amount_cfa);
   if(!Number.isInteger(amount)||amount<=0) return res.status(409).json({error:'INVALID_TARIFF'});
