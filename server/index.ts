@@ -87,7 +87,8 @@ app.get('/api/dossiers',auth,async(req,res)=>{
 app.post('/api/dossiers',auth,async(req,res)=>{
   const u=(req as any).user as AuthUser; const d=req.body;
   if(!d?.id || !d?.numeroDossier || !d?.parcelle) return res.status(400).json({error:'INVALID_DOSSIER'});
-  const payload={...d, client:{...d.client,id:u.role==='CLIENT'?u.id:d.client?.id||u.id}};
+  if(u.role==='CLIENT' && !['CREATION','EN_ATTENTE_PAIEMENT'].includes(d.statut)) return res.status(403).json({error:'CLIENT_CANNOT_SET_WORKFLOW_STATUS'});
+  const payload={...d, statut:u.role==='CLIENT' ? 'CREATION' : d.statut, client:{...d.client,id:u.role==='CLIENT'?u.id:d.client?.id||u.id}};
   await pool.query('INSERT INTO dossiers(id,numero_dossier,client_id,status,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,payload=EXCLUDED.payload,updated_at=NOW()',
     [d.id,d.numeroDossier,payload.client.id,d.statut,JSON.stringify(payload)]);
   await audit(u,'DOSSIER_UPSERTED',d.id,'Dossier enregistré via API');
@@ -99,6 +100,12 @@ app.put('/api/dossiers/:id',auth,async(req,res)=>{
   const current=await pool.query('SELECT payload,client_id FROM dossiers WHERE id=$1',[req.params.id]);
   if(!current.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
   if(u.role==='CLIENT' && current.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+  if(u.role==='CLIENT') {
+    const currentStatus=String(current.rows[0].payload?.statut || 'CREATION');
+    if(!['CREATION','EN_ATTENTE_PAIEMENT'].includes(currentStatus)) return res.status(403).json({error:'DOSSIER_LOCKED_FOR_CLIENT'});
+    d.statut=currentStatus;
+    d.client={...(d.client||{}),id:u.id};
+  }
   await pool.query('UPDATE dossiers SET status=$2,payload=$3,updated_at=NOW() WHERE id=$1',[req.params.id,d.statut,JSON.stringify(d)]);
   await audit(u,'DOSSIER_UPDATED',req.params.id,'Dossier mis à jour');
   res.json({dossier:d});
