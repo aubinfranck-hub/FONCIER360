@@ -76,6 +76,7 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentUser, setCurrentUser] = useState<User>(INITIAL_USERS[0]);
   const [authLoading, setAuthLoading] = useState(isProductionApi);
   const [isAuthenticated, setIsAuthenticated] = useState(!isProductionApi);
+  const [apiHydrated, setApiHydrated] = useState(!isProductionApi);
   const [allUsers] = useState<User[]>(INITIAL_USERS);
   const [dossiers, setDossiers] = useState<DossierFoncier[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_DOSSIERS);
@@ -131,8 +132,9 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (ds.ok) {
           const data = await ds.json();
           if (Array.isArray(data.dossiers)) { setDossiers(data.dossiers); setSelectedDossierId(data.dossiers[0]?.id || null); }
+          setApiHydrated(true);
         }
-      } catch { localStorage.removeItem('foncier360_access_token'); setIsAuthenticated(false); }
+      } catch { localStorage.removeItem('foncier360_access_token'); setIsAuthenticated(false); setApiHydrated(false); }
       finally { setAuthLoading(false); }
     })();
   }, [isProductionApi, apiBase]);
@@ -145,7 +147,7 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [dossiers, tarifs, auditLogs, isProductionApi]);
 
   useEffect(() => {
-    if (!isProductionApi || authLoading || !isAuthenticated) return;
+    if (!isProductionApi || authLoading || !isAuthenticated || !apiHydrated) return;
     const token = localStorage.getItem('foncier360_access_token');
     if (!token) return;
     const timer = window.setTimeout(() => {
@@ -154,7 +156,7 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }).catch(() => null))).catch(() => null);
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [dossiers, isProductionApi, authLoading, isAuthenticated, apiBase]);
+  }, [dossiers, isProductionApi, authLoading, isAuthenticated, apiHydrated, apiBase]);
 
   const logAction = (action: string, dossierId?: string, details?: string) => {
     const newLog: AuditLog = {
