@@ -119,8 +119,10 @@ app.post('/api/dossiers/:id/documents',auth,upload.single('file'),async(req,res)
 });
 
 app.get('/api/documents/:id',auth,async(req,res)=>{
-  const r=await pool.query('SELECT file_name,mime_type,data,sha256 FROM documents WHERE id=$1',[req.params.id]);
+  const u=(req as any).user as AuthUser;
+  const r=await pool.query('SELECT d.file_name,d.mime_type,d.data,d.sha256,ds.client_id FROM documents d JOIN dossiers ds ON ds.id=d.dossier_id WHERE d.id=$1',[req.params.id]);
   if(!r.rowCount) return res.status(404).end();
+  if(u.role==='CLIENT' && r.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
   const x=r.rows[0]; res.setHeader('Content-Type',x.mime_type); res.setHeader('Content-Disposition','inline; filename="'+x.file_name.replace(/"/g,'')+'"'); res.setHeader('X-SHA256',x.sha256); res.send(x.data);
 });
 
@@ -163,8 +165,15 @@ app.post('/api/dossiers/:id/evidence',auth,requireRoles('ADMIN','AGENT_DOCUMENTA
 });
 
 app.post('/api/payments/create-intent',auth,async(req,res)=>{
-  const {dossierId,amount,method}=req.body||{};
-  if(!dossierId || !amount || !method) return res.status(400).json({error:'INVALID_PAYMENT'});
+  const {dossierId,method}=req.body||{};
+  if(!dossierId || !method) return res.status(400).json({error:'INVALID_PAYMENT'});
+  const u=(req as any).user as AuthUser;
+  const d=await pool.query('SELECT client_id FROM dossiers WHERE id=$1',[dossierId]);
+  if(!d.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
+  if(u.role==='CLIENT' && d.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+  const tariff=await pool.query("SELECT amount_cfa FROM tariffs WHERE service='VERIFICATION_FONCIERE' AND active=true ORDER BY effective_date DESC LIMIT 1");
+  if(!tariff.rowCount) return res.status(409).json({error:'TARIFF_NOT_CONFIGURED'});
+  const amount=Number(tariff.rows[0].amount_cfa);
   const id=crypto.randomUUID(), reference='F360-'+new Date().getFullYear()+'-'+id.slice(0,8).toUpperCase();
   await pool.query('INSERT INTO payments(id,dossier_id,amount_cfa,method,status,provider_reference,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',
     [id,dossierId,amount,method,'PENDING',reference,JSON.stringify({providerConfigured:false})]);
@@ -192,9 +201,11 @@ app.post('/api/reports/:dossierId/finalize',auth,requireRoles('VALIDATEUR','ADMI
   if(payload.anomalies?.some((a:any)=>a.gravite==='BLOQUANT' && a.statut!=='RESOLUE')) return res.status(409).json({error:'BLOCKING_ANOMALY'});
   const canonical=JSON.stringify({dossierId:req.params.dossierId,payload});
   const hash=crypto.createHash('sha256').update(canonical).digest('hex');
-  const id=crypto.randomUUID(), number='F360-R-'+new Date().getFullYear()+'-'+hash.slice(0,8).toUpperCase();
-  const report={id,dossierId:req.params.dossierId,numeroRapport:number,version:1,dateGeneration:new Date().toISOString(),validateurId:u.id,validateurNom:u.name,validateurQualite:'VALIDATEUR',hashSha256:hash,statut:'VALIDE'};
-  await pool.query('INSERT INTO reports(id,dossier_id,version,report_number,hash_sha256,payload,validated_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,req.params.dossierId,1,number,hash,JSON.stringify(report),u.id]);
+  const vr=await pool.query('SELECT COALESCE(MAX(version),0)+1 AS version FROM reports WHERE dossier_id=$1',[req.params.dossierId]);
+  const version=Number(vr.rows[0].version);
+  const id=crypto.randomUUID(), number='F360-R-'+new Date().getFullYear()+'-'+hash.slice(0,8).toUpperCase()+'-V'+version;
+  const report={id,dossierId:req.params.dossierId,numeroRapport:number,version,dateGeneration:new Date().toISOString(),validateurId:u.id,validateurNom:u.name,validateurQualite:'VALIDATEUR',hashSha256:hash,statut:'VALIDE'};
+  await pool.query('INSERT INTO reports(id,dossier_id,version,report_number,hash_sha256,payload,validated_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,req.params.dossierId,version,number,hash,JSON.stringify(report),u.id]);
   await audit(u,'REPORT_VALIDATED',req.params.dossierId,'Rapport '+number+'; SHA-256 '+hash);
   res.status(201).json(report);
 });
