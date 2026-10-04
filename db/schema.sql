@@ -49,3 +49,12 @@ CREATE TABLE IF NOT EXISTS tariffs (
  official_source TEXT NOT NULL, official_url TEXT NOT NULL, effective_date DATE NOT NULL, last_verified_date DATE NOT NULL,
  official_verified BOOLEAN NOT NULL DEFAULT FALSE, active BOOLEAN NOT NULL DEFAULT TRUE
 );
+
+-- FONCIER 360 commercial service tariffs.
+-- These are NOT government fees; official_verified stays FALSE until the business owner validates them.
+INSERT INTO tariffs (id,service,label,amount_cfa,unit,official_source,official_url,effective_date,last_verified_date,official_verified,active)
+VALUES
+ (gen_random_uuid(),'F360-VERIFICATION_EXPRESS','FONCIER 360 — Vérification Express',250000,'DOSSIER','Grille commerciale FONCIER 360','https://construction.gouv.ci/',CURRENT_DATE,CURRENT_DATE,FALSE,TRUE),
+ (gen_random_uuid(),'F360-DUE_DILIGENCE_COMPLETE','FONCIER 360 — Due Diligence Complète',350000,'DOSSIER','Grille commerciale FONCIER 360','https://construction.gouv.ci/',CURRENT_DATE,CURRENT_DATE,FALSE,TRUE),
+ (gen_random_uuid(),'F360-AUDIT_PRE_INVESTISSEMENT_DIASPORA','FONCIER 360 — Pack Diaspora Pré-Achat',530000,'DOSSIER','Grille commerciale FONCIER 360','https://construction.gouv.ci/',CURRENT_DATE,CURRENT_DATE,FALSE,TRUE)
+ON CONFLICT DO NOTHING;
