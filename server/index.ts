@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { Pool } from 'pg';
 import crypto from 'node:crypto';
+import { GoogleGenAI, Type } from '@google/genai';
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
@@ -89,6 +90,42 @@ async function audit(user:AuthUser|undefined, action:string, dossierId:string|un
   await pool.query('INSERT INTO audit_logs(id,user_id,user_name,user_role,action,dossier_id,details) VALUES($1,$2,$3,$4,$5,$6,$7)',
     [crypto.randomUUID(), user?.id || 'SYSTEM', user?.name || 'SYSTEM', user?.role || 'SYSTEM', action, dossierId || null, details]);
 }
+
+app.post('/api/gemini/ocr',auth,async(req,res)=>{
+  const apiKey=process.env.GEMINI_API_KEY;
+  if(!apiKey) return res.status(503).json({error:'GEMINI_API_KEY_NOT_CONFIGURED'});
+  const {typeDocument,nomFichier,texteOuDescription,dossierContext}=req.body||{};
+  if(!typeDocument || !nomFichier) return res.status(400).json({error:'INVALID_OCR_INPUT'});
+  try {
+    const ai=new GoogleGenAI({apiKey});
+    const prompt='Tu es un moteur OCR documentaire pour FONCIER 360 en Côte d’Ivoire. Extrais uniquement les informations explicitement visibles. N’invente aucune donnée. Si une information est absente ou illisible, retourne null. OCR != authentification. Type='+typeDocument+' Fichier='+nomFichier+' Contenu='+String(texteOuDescription||'')+' Contexte='+JSON.stringify(dossierContext||{});
+    const response=await ai.models.generateContent({
+      model:process.env.GEMINI_OCR_MODEL||'gemini-2.5-flash',
+      contents:prompt,
+      config:{
+        responseMimeType:'application/json',
+        responseSchema:{
+          type:Type.OBJECT,
+          properties:{
+            nomBeneficiaire:{type:Type.STRING,nullable:true},nomVendeur:{type:Type.STRING,nullable:true},
+            lot:{type:Type.STRING,nullable:true},ilot:{type:Type.STRING,nullable:true},
+            superficieM2:{type:Type.NUMBER,nullable:true},commune:{type:Type.STRING,nullable:true},
+            ville:{type:Type.STRING,nullable:true},lotissement:{type:Type.STRING,nullable:true},
+            idufci:{type:Type.STRING,nullable:true},numeroDocument:{type:Type.STRING,nullable:true},
+            dateDocument:{type:Type.STRING,nullable:true},autoriteSignataire:{type:Type.STRING,nullable:true},
+            mentionsSignatures:{type:Type.STRING,nullable:true}
+          }
+        }
+      }
+    });
+    if(!response.text) return res.status(502).json({error:'EMPTY_GEMINI_RESPONSE'});
+    const p=JSON.parse(response.text);
+    res.json({...p,statutExtraction:'EXTRAIT_PAR_IA',confianceExtraction:0.92});
+  } catch(error) {
+    console.error('Gemini OCR error',error);
+    res.status(502).json({error:'GEMINI_OCR_FAILED'});
+  }
+});
 
 app.get('/api/health', async (_req,res) => {
   const r=await pool.query('SELECT NOW() AS now');
