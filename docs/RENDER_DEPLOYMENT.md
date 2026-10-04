@@ -38,3 +38,23 @@ Ne pas déclarer un paiement SUCCESS manuellement. Configurer un prestataire aut
 
 ## Recherche foncière
 Ne pas prétendre disposer d'une API gouvernementale non documentée. Les e-services officiels et les recherches physiques doivent être enregistrés avec leur preuve, date, agent et référence.
+
+## Paiement Jèko — production
+
+FONCIER 360 utilise Jèko Checkout pour créer une demande de paiement côté serveur et rediriger le client vers Jèko. Le succès définitif est confirmé uniquement par le webhook signé.
+
+Variables Render obligatoires :
+
+- `JEKO_API_KEY` : clé API Jèko, uniquement côté serveur
+- `JEKO_API_KEY_ID` : identifiant de la clé API
+- `JEKO_STORE_ID` : `storeId` du magasin FONCIER 360
+- `JEKO_WEBHOOK_SECRET` : secret HMAC du webhook
+- `APP_PUBLIC_URL` : URL publique HTTPS de FONCIER 360, par exemple `https://votre-domaine.ci`
+
+Webhook à configurer dans le Dashboard Jèko :
+
+`POST https://votre-domaine.ci/api/payments/webhook/jeko`
+
+Jèko signe le corps brut avec HMAC-SHA256 dans `Jeko-Signature`. Le serveur vérifie cette signature avant tout traitement et rend le traitement idempotent. Le montant est déterminé côté serveur depuis la grille tarifaire FONCIER 360.
+
+Méthodes actuellement exposées dans l'interface : Wave, Orange Money, MTN, Moov, Djamo et compte Jèko. Les identifiants et clés ne doivent jamais être ajoutés au dépôt Git.
