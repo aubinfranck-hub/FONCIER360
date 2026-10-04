@@ -8,9 +8,13 @@ import { BusinessTestSuite } from './components/BusinessTestSuite';
 import { ReportModal } from './components/ReportModal';
 import { RegulatoryLibraryModal } from './components/RegulatoryLibraryModal';
 import { DossierFoncier } from './types/foncier360';
-import { ShieldCheck, BookOpen, ExternalLink, HelpCircle } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
+import { AuthView } from './components/AuthView';
 
 const MainContent: React.FC = () => {
+  const { isProductionApi, authLoading, isAuthenticated } = useFoncier();
+  if (isProductionApi && authLoading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Chargement sécurisé…</div>;
+  if (isProductionApi && !isAuthenticated) return <AuthView />;
   const [activeTab, setActiveTab] = useState<'CLIENT' | 'EXPERT' | 'ADMIN' | 'TEST_SUITE'>('CLIENT');
   const [reportModalDossier, setReportModalDossier] = useState<DossierFoncier | null>(null);
   const [showRegulationsModal, setShowRegulationsModal] = useState<boolean>(false);
