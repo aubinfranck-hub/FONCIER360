@@ -26,7 +26,9 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenR
     dossiers,
     selectedDossierId,
     setSelectedDossierId,
-    reinitialiserDonnees
+    reinitialiserDonnees,
+    isProductionApi,
+    logout
   } = useFoncier();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,14 +84,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenR
             <span>Référentiel Juridique (Lois 2020 & 2024)</span>
           </button>
           <span aria-hidden="true" className="text-slate-700">·</span>
-          <button
+          {!isProductionApi && <button
             onClick={reinitialiserDonnees}
             title="Réinitialiser toutes les données au référentiel d'origine"
             className="hover:text-slate-200 flex items-center gap-1 text-slate-400 transition-colors cursor-pointer"
           >
             <RefreshCw className="w-3 h-3" />
             <span>Réinitialiser démo</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -167,7 +169,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenR
           >
             Espace Client
           </button>
-          <button
+          {!isProductionApi || ['EXPERT_FONCIER','EXPERT_URBANISME','TECHNICIEN_TOPO','AGENT_TERRAIN','JURISTE','VALIDATEUR','ADMIN'].includes(currentUser.role) ? <button
             onClick={() => setActiveTab('EXPERT')}
             className={`px-3 py-1.5 text-xs font-medium rounded transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'EXPERT'
@@ -179,8 +181,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenR
             {blockedCount > 0 && (
               <span className="w-2 h-2 rounded-full bg-amber-400" title={`${blockedCount} dossiers en sursis ou avec anomalie bloquante`} />
             )}
-          </button>
-          <button
+          </button> : null}
+          {(!isProductionApi || ['ADMIN','VALIDATEUR'].includes(currentUser.role)) && <button
             onClick={() => setActiveTab('ADMIN')}
             className={`px-3 py-1.5 text-xs font-medium rounded transition-all cursor-pointer ${
               activeTab === 'ADMIN'
@@ -189,8 +191,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenR
             }`}
           >
             Admin & Tarifs
-          </button>
-          <button
+          </button>}
+          {!isProductionApi && <button
             onClick={() => setActiveTab('TEST_SUITE')}
             className={`px-3 py-1.5 text-xs font-medium rounded transition-all flex items-center gap-1 cursor-pointer ${
               activeTab === 'TEST_SUITE'
@@ -200,63 +202,32 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenR
           >
             <FileCheck2 className="w-3.5 h-3.5" />
             <span>10 Cas de Test</span>
-          </button>
+          </button>}
         </nav>
 
-        {/* User Role Switcher Dropdown (RBAC Simulator) */}
         <div className="relative">
-          <button
-            onClick={() => setShowRoleMenu(!showRoleMenu)}
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors text-xs text-left cursor-pointer"
-          >
-            <div className="w-6 h-6 rounded bg-emerald-900 border border-emerald-600/40 flex items-center justify-center text-emerald-300 font-bold text-[10px]">
-              {currentUser.role.substring(0, 2)}
-            </div>
-            <div className="hidden sm:block">
-              <div className="font-medium text-slate-200 text-xs truncate max-w-[120px]">{currentUser.name}</div>
-              <div className="text-[10px] text-emerald-400">{currentUser.role}</div>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-          </button>
-
-          {showRoleMenu && (
-            <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-2 z-50">
-              <div className="px-3 pb-2 mb-1 border-b border-slate-800">
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  Changer de rôle (Test RBAC)
-                </span>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Vérifiez la séparation stricte des accès et vues confidentielles.
-                </p>
+          {isProductionApi ? (
+            <div className="flex items-center gap-2">
+              <div className="px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-xs">
+                <div className="font-medium text-slate-200">{currentUser.name}</div>
+                <div className="text-[10px] text-emerald-400">{currentUser.role}</div>
               </div>
-
-              {roles.map((r) => (
-                <button
-                  key={r.role}
-                  onClick={() => {
-                    setCurrentUserRole(r.role);
-                    setShowRoleMenu(false);
-                    if (r.role === 'CLIENT') setActiveTab('CLIENT');
-                    else if (['EXPERT_FONCIER', 'EXPERT_URBANISME', 'AGENT_TERRAIN'].includes(r.role)) setActiveTab('EXPERT');
-                    else if (['ADMIN', 'VALIDATEUR'].includes(r.role)) setActiveTab('ADMIN');
-                  }}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-start gap-2.5 transition-colors ${
-                    currentUser.role === r.role
-                      ? 'bg-emerald-950/60 text-emerald-300 border-l-2 border-emerald-500'
-                      : 'text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4 mt-0.5 shrink-0 text-slate-400" />
-                  <div>
-                    <div className="font-semibold">{r.label}</div>
-                    <div className="text-[10px] text-slate-400">{r.desc}</div>
-                  </div>
-                </button>
-              ))}
+              <button onClick={logout} className="px-3 py-1.5 rounded-md border border-slate-700 text-xs text-slate-300 hover:bg-slate-800">Déconnexion</button>
             </div>
+          ) : (
+            <>
+              <button onClick={() => setShowRoleMenu(!showRoleMenu)} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors text-xs text-left cursor-pointer">
+                <div className="w-6 h-6 rounded bg-emerald-900 border border-emerald-600/40 flex items-center justify-center text-emerald-300 font-bold text-[10px]">{currentUser.role.substring(0, 2)}</div>
+                <div className="hidden sm:block"><div className="font-medium text-slate-200 text-xs">{currentUser.name}</div><div className="text-[10px] text-emerald-400">{currentUser.role}</div></div>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+              {showRoleMenu && <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-2 z-50">
+                <div className="px-3 pb-2 mb-1 border-b border-slate-800"><span className="text-[11px] font-semibold text-slate-400 uppercase">Changer de rôle (démo uniquement)</span></div>
+                {roles.map((r) => <button key={r.role} onClick={() => { setCurrentUserRole(r.role); setShowRoleMenu(false); if (r.role==='CLIENT') setActiveTab('CLIENT'); else if (['EXPERT_FONCIER','EXPERT_URBANISME','AGENT_TERRAIN'].includes(r.role)) setActiveTab('EXPERT'); else if (['ADMIN','VALIDATEUR'].includes(r.role)) setActiveTab('ADMIN'); }} className={`w-full text-left px-3 py-2 text-xs ${currentUser.role===r.role?'bg-emerald-950/60 text-emerald-300':'text-slate-300 hover:bg-slate-800'}`}>{r.label}</button>)}
+              </div>}
+            </>
           )}
-        </div>
-      </div>
+        </div>      </div>
     </header>
   );
 };
