@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { DocumentExtractionData, DocumentType } from '../types/foncier360';
 
 /**
@@ -15,69 +14,41 @@ export async function extraireDonneesDocumentAvecIA(
   texteOuDescription: string,
   dossierContext?: { commune?: string; lot?: string; ilot?: string; lotissement?: string }
 ): Promise<DocumentExtractionData> {
-  const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  try {
+    const response = await fetch('/api/gemini/ocr', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        typeDocument,
+        nomFichier,
+        texteOuDescription,
+        dossierContext,
+      }),
+    });
 
-  if (apiKey) {
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const prompt = `Tu es un moteur d'assistance OCR pour la due diligence foncière en Côte d'Ivoire (FONCIER 360).
-Analyse les éléments suivants pour extraire les entités foncières strictement identifiées :
-Type de document : ${typeDocument}
-Nom du fichier : ${nomFichier}
-Contenu / transcription : ${texteOuDescription}
-Contexte déclaré : ${JSON.stringify(dossierContext || {})}
-
-Règles impératives :
-- N'invente aucune donnée non mentionnée.
-- Si une information n'est pas lisible ou absente, renvoie null.
-- Extrait : nomBeneficiaire, nomVendeur, lot, ilot, superficieM2 (nombre), commune, lotissement, idufci, numeroDocument, dateDocument, autoriteSignataire, mentionsSignatures.
-
-Renvoie UNIQUEMENT un objet JSON valide avec cette structure :
-{
-  "nomBeneficiaire": string | null,
-  "nomVendeur": string | null,
-  "lot": string | null,
-  "ilot": string | null,
-  "superficieM2": number | null,
-  "commune": string | null,
-  "lotissement": string | null,
-  "idufci": string | null,
-  "numeroDocument": string | null,
-  "dateDocument": string | null,
-  "autoriteSignataire": string | null,
-  "mentionsSignatures": string | null
-}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
-
-      if (response.text) {
-        const parsed = JSON.parse(response.text);
-        return {
-          nomBeneficiaire: parsed.nomBeneficiaire || undefined,
-          nomVendeur: parsed.nomVendeur || undefined,
-          lot: parsed.lot || undefined,
-          ilot: parsed.ilot || undefined,
-          superficieM2: parsed.superficieM2 ? Number(parsed.superficieM2) : undefined,
-          commune: parsed.commune || undefined,
-          lotissement: parsed.lotissement || undefined,
-          idufci: parsed.idufci || undefined,
-          numeroDocument: parsed.numeroDocument || undefined,
-          dateDocument: parsed.dateDocument || undefined,
-          autoriteSignataire: parsed.autoriteSignataire || undefined,
-          mentionsSignatures: parsed.mentionsSignatures || undefined,
-          statutExtraction: 'EXTRAIT_PAR_IA',
-          confianceExtraction: 0.92
-        };
-      }
-    } catch (err) {
-      console.warn('Erreur appel Gemini API pour OCR, utilisation du parseur local déterministe:', err);
+    if (response.ok) {
+      const parsed = await response.json();
+      return {
+        nomBeneficiaire: parsed.nomBeneficiaire || undefined,
+        nomVendeur: parsed.nomVendeur || undefined,
+        lot: parsed.lot || undefined,
+        ilot: parsed.ilot || undefined,
+        superficieM2: parsed.superficieM2 ? Number(parsed.superficieM2) : undefined,
+        commune: parsed.commune || undefined,
+        lotissement: parsed.lotissement || undefined,
+        idufci: parsed.idufci || undefined,
+        numeroDocument: parsed.numeroDocument || undefined,
+        dateDocument: parsed.dateDocument || undefined,
+        autoriteSignataire: parsed.autoriteSignataire || undefined,
+        mentionsSignatures: parsed.mentionsSignatures || undefined,
+        statutExtraction: 'EXTRAIT_PAR_IA',
+        confianceExtraction: 0.92,
+      };
     }
+  } catch (err) {
+    console.warn('Erreur appel serveur Gemini API pour OCR, utilisation du parseur local déterministe:', err);
   }
 
   // Parseur déterministe d'assistance (reconnaissance regex des mentions d'actes ivoiriens)
