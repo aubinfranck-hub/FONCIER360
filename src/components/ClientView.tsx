@@ -173,12 +173,23 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
   };
 
   // Gestion du paiement
-  const handlePaiementSubmit = (e: React.FormEvent) => {
+  const handlePaiementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeDossier) return;
-    const refSimulee = `${paymentProvider}-TX-${Math.floor(100000 + Math.random() * 900000)}`;
-    validerPaiementClient(activeDossier.id, paymentProvider, refSimulee);
+    const api = import.meta.env.VITE_API_URL;
+    if (!api) {
+      alert('Le paiement réel n’est pas configuré. Aucun succès ne sera simulé.');
+      return;
+    }
+    const token = localStorage.getItem('foncier360_access_token');
+    const response = await fetch(api + '/api/payments/create-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      body: JSON.stringify({ dossierId: activeDossier.id, amount: activeDossier.paiement.totalTtcCfa, method: paymentProvider })
+    });
+    if (!response.ok) { alert('Impossible de créer la demande de paiement.'); return; }
     setShowPaymentModal(false);
+    alert('Demande de paiement créée. Le dossier reste en attente jusqu’à confirmation réelle du prestataire.');
   };
 
   // Calcul des 4 états de clarté pour le client
