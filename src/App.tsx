@@ -13,12 +13,11 @@ import { AuthView } from './components/AuthView';
 
 const MainContent: React.FC = () => {
   const { isProductionApi, authLoading, isAuthenticated } = useFoncier();
-  if (isProductionApi && authLoading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Chargement sécurisé…</div>;
-  if (isProductionApi && !isAuthenticated) return <AuthView />;
   const [activeTab, setActiveTab] = useState<'CLIENT' | 'EXPERT' | 'ADMIN' | 'TEST_SUITE'>('CLIENT');
   const [reportModalDossier, setReportModalDossier] = useState<DossierFoncier | null>(null);
   const [showRegulationsModal, setShowRegulationsModal] = useState<boolean>(false);
-
+  if (isProductionApi && authLoading) return <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">Chargement sécurisé…</div>;
+  if (isProductionApi && !isAuthenticated) return <AuthView />;
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col selection:bg-emerald-100 selection:text-emerald-900">
       {/* Navigation principale */}
