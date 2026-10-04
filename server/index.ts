@@ -206,6 +206,8 @@ app.post('/api/reports/:dossierId/finalize',auth,requireRoles('VALIDATEUR','ADMI
   if(!d.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
   const payload=d.rows[0].payload;
   if(payload.anomalies?.some((a:any)=>a.gravite==='BLOQUANT' && a.statut!=='RESOLUE')) return res.status(409).json({error:'BLOCKING_ANOMALY'});
+  const paid=await pool.query("SELECT 1 FROM payments WHERE dossier_id=$1 AND status='SUCCESS' LIMIT 1",[req.params.dossierId]);
+  if(!paid.rowCount) return res.status(409).json({error:'PAYMENT_NOT_CONFIRMED'});
   const canonical=JSON.stringify({dossierId:req.params.dossierId,payload});
   const hash=crypto.createHash('sha256').update(canonical).digest('hex');
   const vr=await pool.query('SELECT COALESCE(MAX(version),0)+1 AS version FROM reports WHERE dossier_id=$1',[req.params.dossierId]);
