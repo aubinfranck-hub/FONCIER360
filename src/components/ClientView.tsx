@@ -123,7 +123,7 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
         deboursAdministratifsCfa: 65000,
         deplacementTerrainCfa: 35000,
         prestationsTechniquesCfa: 30000,
-        totalTtcCfa: nouveauForm.formule === 'VERIFICATION_EXPRESS' ? 250000 : 350000
+        totalTtcCfa: nouveauForm.formule === 'VERIFICATION_EXPRESS' ? 250000 : nouveauForm.formule === 'DUE_DILIGENCE_COMPLETE' ? 350000 : 530000
       }
     });
 
@@ -328,7 +328,7 @@ export const ClientView: React.FC<ClientViewProps> = ({ onOpenReport }) => {
                 >
                   <div className="font-bold text-slate-900 text-xs">Pack Diaspora Pré-Achat</div>
                   <div className="text-[11px] text-slate-500 mt-1">Diligence intégrale, repérage vidéo & audit notarial</div>
-                  <div className="text-xs font-bold text-emerald-800 mt-2">350 000 FCFA + Débours</div>
+                  <div className="text-xs font-bold text-emerald-800 mt-2">530 000 FCFA TTC</div>
                 </div>
               </div>
             </div>
