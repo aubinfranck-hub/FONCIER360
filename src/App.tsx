@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FoncierProvider, useFoncier } from './context/FoncierContext';
 import { Navbar } from './components/Navbar';
 import { ClientView } from './components/ClientView';
