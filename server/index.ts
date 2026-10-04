@@ -145,19 +145,56 @@ app.post('/api/dossiers',auth,async(req,res)=>{
 });
 
 app.put('/api/dossiers/:id',auth,async(req,res)=>{
-  const u=(req as any).user as AuthUser; const d=req.body;
+  const u=(req as any).user as AuthUser; const incoming=req.body||{};
   const current=await pool.query('SELECT payload,client_id FROM dossiers WHERE id=$1',[req.params.id]);
   if(!current.rowCount) return res.status(404).json({error:'DOSSIER_NOT_FOUND'});
   if(u.role==='CLIENT' && current.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+
   if(u.role==='CLIENT') {
-    const currentStatus=String(current.rows[0].payload?.statut || 'CREATION');
+    const existing=current.rows[0].payload||{};
+    const currentStatus=String(existing.statut||'CREATION');
     if(!['CREATION','EN_ATTENTE_PAIEMENT'].includes(currentStatus)) return res.status(403).json({error:'DOSSIER_LOCKED_FOR_CLIENT'});
-    d.statut=currentStatus;
-    d.client={...(d.client||{}),id:u.id};
+
+    const p=incoming.parcelle||{};
+    const safeParcel={
+      ...existing.parcelle,
+      region:p.region,
+      district:p.district,
+      ville:p.ville,
+      commune:p.commune,
+      quartierVillage:p.quartierVillage,
+      lotissementNom:p.lotissementNom,
+      lot:p.lot,
+      ilot:p.ilot,
+      superficieM2:p.superficieM2,
+      proprietaireDeclare:p.proprietaireDeclare,
+      qualiteVendeur:p.qualiteVendeur,
+      typeDocumentPrincipal:p.typeDocumentPrincipal,
+      idufciFourni:p.idufciFourni
+    };
+    const payload={
+      ...existing,
+      formule: ['VERIFICATION_EXPRESS','DUE_DILIGENCE_COMPLETE','AUDIT_PRE_INVESTISSEMENT_DIASPORA'].includes(incoming.formule) ? incoming.formule : existing.formule,
+      statut:currentStatus,
+      client:{...existing.client,id:u.id,name:existing.client?.name||u.name,email:existing.client?.email||u.email},
+      parcelle:safeParcel,
+      projetConstruction: incoming.projetConstruction ? {
+        ...existing.projetConstruction,
+        typeProjet:incoming.projetConstruction.typeProjet,
+        nombreNiveaux:Number(incoming.projetConstruction.nombreNiveaux)||1,
+        surfacePlancherPrevueM2:Number(incoming.projetConstruction.surfacePlancherPrevueM2)||0,
+        usagePrincipal:incoming.projetConstruction.usagePrincipal
+      } : existing.projetConstruction
+    };
+    await pool.query('UPDATE dossiers SET status=$2,payload=$3,updated_at=NOW() WHERE id=$1',[req.params.id,currentStatus,JSON.stringify(payload)]);
+    await audit(u,'DOSSIER_CLIENT_UPDATED',req.params.id,'Champs client autorisés uniquement');
+    return res.json({dossier:payload});
   }
-  await pool.query('UPDATE dossiers SET status=$2,payload=$3,updated_at=NOW() WHERE id=$1',[req.params.id,d.statut,JSON.stringify(d)]);
+
+  if(!incoming.statut) return res.status(400).json({error:'STATUS_REQUIRED'});
+  await pool.query('UPDATE dossiers SET status=$2,payload=$3,updated_at=NOW() WHERE id=$1',[req.params.id,incoming.statut,JSON.stringify(incoming)]);
   await audit(u,'DOSSIER_UPDATED',req.params.id,'Dossier mis à jour');
-  res.json({dossier:d});
+  res.json({dossier:incoming});
 });
 
 app.post('/api/dossiers/:id/documents',auth,upload.single('file'),async(req,res)=>{
@@ -262,6 +299,15 @@ app.post('/api/payments/create-intent',auth,async(req,res)=>{
     [id,dossierId,amount,method,'PENDING',reference,jb.id||null,JSON.stringify({provider:'JEKO',jekoPaymentRequestId:jb.id||null,jekoStatus:jb.status||'pending',redirectUrl:jb.redirectUrl})]);
   await audit(u,'PAYMENT_INTENT_CREATED',dossierId,'Paiement Jèko '+reference+' créé; montant '+amount+' FCFA');
   res.status(201).json({paymentId:id,reference,status:'PENDING',provider:'JEKO',redirectUrl:jb.redirectUrl,jekoPaymentRequestId:jb.id||null});
+});
+
+app.get('/api/payments/:reference/status',auth,async(req,res)=>{
+  const u=(req as any).user as AuthUser;
+  const r=await pool.query('SELECT p.*,d.client_id FROM payments p JOIN dossiers d ON d.id=p.dossier_id WHERE p.provider_reference=$1 LIMIT 1',[req.params.reference]);
+  if(!r.rowCount) return res.status(404).json({error:'PAYMENT_NOT_FOUND'});
+  if(u.role==='CLIENT' && r.rows[0].client_id!==u.id) return res.status(403).json({error:'FORBIDDEN'});
+  const x=r.rows[0];
+  res.json({reference:x.provider_reference,status:x.status,method:x.method,amountCfa:x.amount_cfa,transactionId:x.provider_transaction_id,metadata:x.metadata});
 });
 
 app.post('/api/payments/webhook/:provider',async(req,res)=>{
