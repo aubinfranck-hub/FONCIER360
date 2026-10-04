@@ -56,6 +56,12 @@ interface FoncierContextType {
   mettreAJourTarif: (tarifId: string, updates: Partial<TarifReference>) => void;
   executerCasTestMetier: (casNumero: number) => void;
   reinitialiserDonnees: () => void;
+  isProductionApi: boolean;
+  authLoading: boolean;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string) => Promise<boolean>;
+  logout: () => void;
 }
 
 const STORAGE_KEY_DOSSIERS = 'foncier360_dossiers_v1';
@@ -65,7 +71,12 @@ const STORAGE_KEY_TARIFS = 'foncier360_tarifs_v1';
 const FoncierContext = createContext<FoncierContextType | undefined>(undefined);
 
 export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User>(INITIAL_USERS[0]); // Default to Client
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const isProductionApi = Boolean(apiBase);
+  const [currentUser, setCurrentUser] = useState<User>(INITIAL_USERS[0]);
+  const [authLoading, setAuthLoading] = useState(isProductionApi);
+  const [isAuthenticated, setIsAuthenticated] = useState(!isProductionApi);
+  const [apiHydrated, setApiHydrated] = useState(!isProductionApi);
   const [allUsers] = useState<User[]>(INITIAL_USERS);
   const [dossiers, setDossiers] = useState<DossierFoncier[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_DOSSIERS);
@@ -106,18 +117,46 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [reglementations] = useState<ReglementationItem[]>(OFFICIAL_REGULATIONS);
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(dossiers[0]?.id || null);
 
-  // Sync to local storage
   useEffect(() => {
+    if (!isProductionApi) return;
+    const token = localStorage.getItem('foncier360_access_token');
+    if (!token) { setAuthLoading(false); setIsAuthenticated(false); return; }
+    (async () => {
+      try {
+        const me = await fetch(apiBase + '/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
+        if (!me.ok) throw new Error('AUTH');
+        const meData = await me.json();
+        setCurrentUser(meData.user);
+        setIsAuthenticated(true);
+        const ds = await fetch(apiBase + '/api/dossiers', { headers: { Authorization: 'Bearer ' + token } });
+        if (ds.ok) {
+          const data = await ds.json();
+          if (Array.isArray(data.dossiers)) { setDossiers(data.dossiers); setSelectedDossierId(data.dossiers[0]?.id || null); }
+          setApiHydrated(true);
+        }
+      } catch { localStorage.removeItem('foncier360_access_token'); setIsAuthenticated(false); setApiHydrated(false); }
+      finally { setAuthLoading(false); }
+    })();
+  }, [isProductionApi, apiBase]);
+
+  useEffect(() => {
+    if (isProductionApi) return;
     localStorage.setItem(STORAGE_KEY_DOSSIERS, JSON.stringify(dossiers));
-  }, [dossiers]);
-
-  useEffect(() => {
     localStorage.setItem(STORAGE_KEY_TARIFS, JSON.stringify(tarifs));
-  }, [tarifs]);
+    localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(auditLogs));
+  }, [dossiers, tarifs, auditLogs, isProductionApi]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(auditLogs));
-  }, [auditLogs]);
+    if (!isProductionApi || authLoading || !isAuthenticated || !apiHydrated) return;
+    const token = localStorage.getItem('foncier360_access_token');
+    if (!token) return;
+    const timer = window.setTimeout(() => {
+      Promise.all(dossiers.map(d => fetch(apiBase + '/api/dossiers/' + d.id, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(d)
+      }).catch(() => null))).catch(() => null);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [dossiers, isProductionApi, authLoading, isAuthenticated, apiHydrated, apiBase]);
 
   const logAction = (action: string, dossierId?: string, details?: string) => {
     const newLog: AuditLog = {
@@ -134,6 +173,7 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const setCurrentUserRole = (role: UserRole) => {
+    if (isProductionApi) return;
     const userWithRole = allUsers.find((u) => u.role === role);
     if (userWithRole) {
       setCurrentUser(userWithRole);
@@ -148,18 +188,34 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const login = async (email: string, password: string): Promise<boolean> => {
+    if (!isProductionApi) return false;
+    const response = await fetch(apiBase + '/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email,password}) });
+    if (!response.ok) return false;
+    const data = await response.json(); localStorage.setItem('foncier360_access_token', data.token); setCurrentUser(data.user); setIsAuthenticated(true); return true;
+  };
+  const register = async (name: string, email: string, password: string): Promise<boolean> => {
+    if (!isProductionApi) return false;
+    const response = await fetch(apiBase + '/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,email,password}) });
+    if (!response.ok) return false;
+    const data = await response.json(); localStorage.setItem('foncier360_access_token', data.token); setCurrentUser(data.user); setIsAuthenticated(true); return true;
+  };
+  const logout = () => { localStorage.removeItem('foncier360_access_token'); setIsAuthenticated(false); setCurrentUser(INITIAL_USERS[0]); setDossiers([]); setSelectedDossierId(null); };
+
+
   const creerNouveauDossier = (
     data: Omit<DossierFoncier, 'id' | 'numeroDossier' | 'dateCreation' | 'anomalies' | 'recherchesAdministratives'>
   ): string => {
-    const newId = `dos-${Date.now()}`;
-    const seq = Math.floor(1000 + Math.random() * 9000);
-    const numeroDossier = `F360-CI-2026-${seq}`;
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `dos-${Date.now()}`;
+    const seq = String(Date.now()).slice(-6);
+    const numeroDossier = `F360-CI-${new Date().getFullYear()}-${seq}`;
 
-    // Calcul automatique du devis initial en séparant rigoureusement les coûts
-    const honoraires = data.formule === 'VERIFICATION_EXPRESS' ? 120000 : data.formule === 'DUE_DILIGENCE_COMPLETE' ? 220000 : 350000;
-    const debours = 65000;
-    const deplacement = 35000;
-    const tech = data.formule === 'AUDIT_PRE_INVESTISSEMENT_DIASPORA' ? 60000 : 30000;
+    // Le tarif de production doit provenir du référentiel ; aucune valeur gouvernementale n'est inventée ici.
+    const formulaTariff = tarifs.find(t => t.actif && ((data.formule === 'VERIFICATION_EXPRESS' && t.service.includes('EXPRESS')) || (data.formule === 'DUE_DILIGENCE_COMPLETE' && t.service.includes('DUE')) || (data.formule === 'AUDIT_PRE_INVESTISSEMENT_DIASPORA' && t.service.includes('DIASPORA'))));
+    const honoraires = formulaTariff?.montantCfa || 0;
+    const debours = tarifs.filter(t => t.actif && t.service === 'DEBOURS').reduce((sum,t)=>sum+t.montantCfa,0);
+    const deplacement = tarifs.find(t => t.actif && t.service === 'DEPLACEMENT')?.montantCfa || 0;
+    const tech = tarifs.find(t => t.actif && t.service === 'TECHNIQUE')?.montantCfa || 0;
     const totalTtc = honoraires + debours + deplacement + tech;
 
     const nouveauDossier: DossierFoncier = {
@@ -453,25 +509,12 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const validerPaiementClient = (dossierId: string, moyen: PaiementDossier['moyenPaiement'], refTx: string) => {
-    setDossiers((prev) =>
-      prev.map((d) => {
-        if (d.id === dossierId) {
-          return {
-            ...d,
-            statut: 'PRE_VERIFICATION',
-            paiement: {
-              ...d.paiement,
-              statut: 'SUCCESS',
-              moyenPaiement: moyen,
-              referenceTransaction: refTx,
-              datePaiement: new Date().toISOString()
-            }
-          };
-        }
-        return d;
-      })
-    );
-    logAction('PAIEMENT_VALIDE', dossierId, `Paiement confirmé via ${moyen} (Réf : ${refTx})`);
+    if (isProductionApi) {
+      logAction('PAIEMENT_NON_SIMULE', dossierId, 'Le paiement doit être confirmé par le webhook du prestataire. Aucun SUCCESS local.');
+      return;
+    }
+    setDossiers((prev) => prev.map((d) => d.id === dossierId ? { ...d, statut:'PRE_VERIFICATION', paiement:{ ...d.paiement, statut:'SUCCESS', moyenPaiement:moyen, referenceTransaction:refTx, datePaiement:new Date().toISOString() } } : d));
+    logAction('PAIEMENT_VALIDE_DEMO', dossierId, 'Paiement de démonstration uniquement.');
   };
 
   const genererRapportDossier = (dossierId: string) => {
@@ -512,7 +555,7 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
       'Vérifier auprès de la Conservation Foncière l\'absence de commandement de saisie ou prénotation judiciaire'
     ];
 
-    const hashReport = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const hashReport = isProductionApi ? 'A_CALCULER_PAR_API' : 'DEMO_NON_CRYPTographique';
 
     const nouveauRapport: RapportFoncier = {
       id: `rap-${Date.now()}`,
@@ -551,29 +594,19 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const validerRapportSenior = (dossierId: string, approbation: boolean, motif?: string) => {
-    setDossiers((prev) =>
-      prev.map((d) => {
-        if (d.id === dossierId && d.rapportFinal) {
-          return {
-            ...d,
-            statut: approbation ? 'LIVRE' : 'CONTROLE_QUALITE',
-            rapportFinal: {
-              ...d.rapportFinal,
-              statut: approbation ? 'VALIDE' : 'REJETE',
-              validateurId: currentUser.id,
-              validateurNom: currentUser.name,
-              validateurQualite: 'Direction Technique et Juridique Senior'
-            }
-          };
-        }
-        return d;
-      })
-    );
-    logAction(
-      approbation ? 'VALIDATION_SENIOR_APPROUVEE' : 'VALIDATION_SENIOR_REJETEE',
-      dossierId,
-      `Décision de validation senior par ${currentUser.name} : ${approbation ? 'APPROUVÉ & LIVRÉ' : 'REJETÉ POUR RÉVISION'} (Motif : ${motif || 'Conforme aux exigences'})`
-    );
+    if (isProductionApi && approbation) {
+      const token=localStorage.getItem('foncier360_access_token');
+      fetch(apiBase + '/api/reports/' + dossierId + '/finalize', { method:'POST', headers:{ Authorization:'Bearer '+(token||''), 'Content-Type':'application/json' } })
+        .then(r=>r.ok ? r.json() : Promise.reject(new Error('REPORT_REJECTED')))
+        .then((report) => {
+          setDossiers(prev=>prev.map(d=>d.id===dossierId && d.rapportFinal ? {...d,statut:'LIVRE',rapportFinal:{...d.rapportFinal,hashSha256:report.hashSha256,numeroRapport:report.numeroRapport,statut:'VALIDE'}}:d));
+          logAction('RAPPORT_VALIDE_API',dossierId,'Rapport validé côté serveur avec hash SHA-256 réel.');
+        }).catch(()=>logAction('RAPPORT_VALIDATION_ECHEC',dossierId,'Validation serveur refusée ou impossible.'));
+      return;
+    }
+    if (isProductionApi) return;
+    setDossiers((prev) => prev.map((d) => d.id === dossierId && d.rapportFinal ? {...d,statut:approbation?'LIVRE':'CONTROLE_QUALITE',rapportFinal:{...d.rapportFinal,statut:approbation?'VALIDE':'REJETE',validateurId:currentUser.id,validateurNom:currentUser.name,validateurQualite:'Direction Technique et Juridique Senior'}}:d));
+    logAction('RAPPORT_VALIDATION_DEMO',dossierId,motif||'Validation de démonstration.');
   };
 
   const poserQuestionClient = (dossierId: string, question: string) => {
@@ -1496,7 +1529,13 @@ export const FoncierProvider: React.FC<{ children: React.ReactNode }> = ({ child
         repondreQuestionClient,
         mettreAJourTarif,
         executerCasTestMetier,
-        reinitialiserDonnees
+        reinitialiserDonnees,
+        isProductionApi,
+        authLoading,
+        isAuthenticated,
+        login,
+        register,
+        logout
       }}
     >
       {children}

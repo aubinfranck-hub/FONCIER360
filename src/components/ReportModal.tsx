@@ -401,17 +401,17 @@ export const ReportModal: React.FC<ReportModalProps> = ({ dossier, onClose }) =>
           <div className="border-t-2 border-slate-900 pt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-slate-600">
             <div>
               <div className="font-bold text-slate-900">FONCIER 360 · Validation Direction Qualité</div>
-              <div>Validateur : {rep?.validateurNom || 'Dr. Konan Marie-Laure (Directrice Qualité & Validation Senior)'}</div>
+              <div>Validateur : {rep?.validateurNom || 'Non validé'}</div>
               <div className="font-mono text-[10px] text-slate-500 mt-1">
                 Hash cryptographique SHA-256 du rapport :<br />
-                <span className="text-slate-800 font-semibold">{rep?.hashSha256 || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}</span>
+                <span className="text-slate-800 font-semibold">{rep?.hashSha256 || 'NON_CALCULE_AVANT_VALIDATION'}</span>
               </div>
             </div>
             <div className="text-right">
               <div className="border-2 border-emerald-800 text-emerald-900 p-3 rounded-md text-center inline-block">
                 <Stamp className="w-6 h-6 mx-auto mb-1 text-emerald-800" />
                 <div className="font-serif font-bold text-[11px] uppercase tracking-wider">FONCIER 360 CI</div>
-                <div className="text-[9px] uppercase font-mono">DUE DILIGENCE CERTIFIÉE</div>
+                <div className="text-[9px] uppercase font-mono">DUE DILIGENCE — STATUT À CONFIRMER</div>
               </div>
             </div>
           </div>
