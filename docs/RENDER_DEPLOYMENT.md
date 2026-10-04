@@ -21,6 +21,8 @@ Après création de la base:
 - JWT_SECRET (secret aléatoire >= 32 caractères)
 - CORS_ORIGIN = URL publique FONCIER 360
 - VITE_API_URL = URL publique de l'API si frontend séparé
+- GEMINI_API_KEY = clé Gemini uniquement côté serveur pour l’OCR assisté
+- GEMINI_OCR_MODEL = modèle Gemini autorisé pour l’OCR (optionnel)
 
 ## Premier administrateur
 Renseigner temporairement:
