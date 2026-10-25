@@ -16,6 +16,9 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required');
 if (!jwtSecret || jwtSecret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
 
 const pool = new Pool({ connectionString: databaseUrl, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined });
+// Une connexion inactive coupée (redémarrage de la base, coupure réseau) émet un événement « error » :
+// sans écouteur, Node plante tout le serveur.
+pool.on('error',(err)=>console.error('[DB] Connexion inactive perdue (le pool se reconnecte seul) :',err.message));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 app.use(cors({ origin: (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map(s => s.trim()), credentials: true }));
 
@@ -390,6 +393,6 @@ app.get('/api/audit-logs',auth,requireRoles('ADMIN','VALIDATEUR'),async(_req,res
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static('dist', { index: 'index.html' }));
-  app.get(/^\\/(?!api).*/, (_req,res) => res.sendFile(process.cwd() + '/dist/index.html'));
+  app.get(/^\/(?!api).*/, (_req,res) => res.sendFile(process.cwd() + '/dist/index.html'));
 }
 app.listen(port,()=>console.log('FONCIER360 API listening on :'+port));
